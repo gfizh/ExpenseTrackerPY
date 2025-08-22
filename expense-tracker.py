@@ -1,160 +1,142 @@
-import tkinter as tk               # Library untuk membuat GUI
-from tkinter import ttk, messagebox # ttk = widget modern, messagebox = popup
-from expense import Expense         # Import class Expense dari file expense.py
-import datetime, calendar, locale, os # Modul bawaan Python untuk waktu, kalender, bahasa, dan file
+import tkinter as tk
+from tkinter import ttk, messagebox
+import datetime, os, locale, csv
 
-# Gunakan bahasa Indonesia jika tersedia
+# Gunakan lokal Indonesia
 try:
     locale.setlocale(locale.LC_ALL, 'id_ID.utf8')
 except:
     locale.setlocale(locale.LC_ALL, '')
 
-# Daftar kategori pengeluaran
-expense_categories = ["🍔 Makanan", "🏠 Rumah", "💼 Kebutuhan", "🎉 Hiburan", "🛍️ Belanja"]
+# ====== Variabel Global ======
+budget = 600000  # contoh budget bulanan
+expense_categories = [
+    "🍔 Makanan & Jajan",
+    "🎒 Alat Sekolah",
+    "🚌 Transportasi",
+    "🎮 Hiburan",
+    "📱 Pulsa & Internet",
+    "👕 Kebutuhan Pribadi",
+    "🎁 Lainnya"
+]
 
-# Budget bulanan tetap
-budget = 2_000_000
-
-# Fungsi ubah angka ke format Rupiah
+# ====== Helper ======
 def format_rupiah(amount):
-    return f"Rp{locale.format_string('%d', amount, grouping=True)}"
+    return "Rp {:,}".format(int(amount)).replace(",", ".")
 
-# Fungsi tentukan nama file sesuai bulan & tahun
 def get_expense_file_path():
-    now = datetime.datetime.now()
-    filename = f"pengeluaran_{now.year}_{now.month:02}.csv"
-    return filename
+    bulan = datetime.datetime.now().strftime("%Y-%m")
+    return f"pengeluaran_{bulan}.csv"
 
-# Fungsi hitung total per kategori
-def get_total_by_category(category):
-    path = get_expense_file_path()
-    if not os.path.exists(path):
-        return 0
-    with open(path, "r", encoding="utf-8") as f:
-        expenses = [
-            Expense(name, float(amount), cat)
-            for name, amount, cat in (line.strip().split(",") for line in f)
-        ]
-    total = sum(e.amount for e in expenses if e.category == category)
-    return total
-
-# Fungsi simpan data pengeluaran ke file CSV
+# ====== Simpan Data ======
 def save_expense(name, amount, category):
-    try:
-        amount = float(amount)  # Ubah input jadi angka
-        path = get_expense_file_path()
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(f"{name},{amount},{category}\n")  # Simpan data
-
-        # Hitung total kategori terbaru
-        total_cat = get_total_by_category(category)
-
-        # Popup sukses
-        messagebox.showinfo(
-            "Berhasil",
-            f"✅ Pengeluaran berhasil dicatat!\n\n"
-            f"📝 Nama: {name}\n"
-            f"💵 Jumlah: {format_rupiah(amount)}\n"
-            f"📂 Kategori: {category}\n\n"
-            f"➡️ Total {category} sekarang: {format_rupiah(total_cat)}"
-        )
-
-        # Tampilkan ringkasan + info transaksi terakhir di summary_text
-        show_summary(name, amount, category, total_cat)
-
-    except ValueError:
-        messagebox.showerror("Error", "Jumlah pengeluaran harus berupa angka!")
-
-# Fungsi tampilkan ringkasan pengeluaran
-def show_summary(last_name=None, last_amount=None, last_category=None, last_total=None):
     path = get_expense_file_path()
-    if not os.path.exists(path):
-        messagebox.showinfo("Info", "Belum ada data pengeluaran bulan ini.")
+    file_exists = os.path.exists(path)
+
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if not file_exists:  # kalau file baru, kasih header
+            writer.writerow(["Tanggal", "Nama", "Nominal", "Kategori"])
+        writer.writerow([datetime.date.today(), name, amount, category])
+
+    show_summary(last_name=name, last_amount=amount, last_category=category)
+
+# ====== Tampilkan Ringkasan (Dashboard) ======
+def show_summary(last_name=None, last_amount=None, last_category=None):
+    for widget in summary_frame.winfo_children():
+        widget.destroy()
+
+    totals = {}
+    total_all = 0
+    path = get_expense_file_path()
+
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    amount = int(row["Nominal"])
+                    category = row["Kategori"]
+                    totals[category] = totals.get(category, 0) + amount
+                    total_all += amount
+                except:
+                    continue
+
+    # === CARD 1: Ringkasan Bulanan ===
+    card1 = tk.Frame(summary_frame, bg="#fef9c3", bd=2, relief="ridge", padx=10, pady=10)
+    card1.pack(fill="x", pady=5)
+    tk.Label(card1, text="💰 Ringkasan Bulanan", font=("Segoe UI", 12, "bold"), bg="#fef9c3").pack(anchor="w")
+    tk.Label(card1, text=f"Total Pengeluaran: {format_rupiah(total_all)}", bg="#fef9c3").pack(anchor="w")
+    tk.Label(card1, text=f"Budget: {format_rupiah(budget)}", bg="#fef9c3").pack(anchor="w")
+    tk.Label(card1, text=f"Sisa Budget: {format_rupiah(budget - total_all)}", bg="#fef9c3").pack(anchor="w")
+
+    # === CARD 2: Total per Kategori ===
+    card2 = tk.Frame(summary_frame, bg="#dbeafe", bd=2, relief="ridge", padx=10, pady=10)
+    card2.pack(fill="x", pady=5)
+    tk.Label(card2, text="📊 Total per Kategori", font=("Segoe UI", 12, "bold"), bg="#dbeafe").pack(anchor="w")
+    if totals:
+        for cat, amt in totals.items():
+            tk.Label(card2, text=f"{cat}: {format_rupiah(amt)}", bg="#dbeafe").pack(anchor="w")
+    else:
+        tk.Label(card2, text="Belum ada data.", bg="#dbeafe").pack(anchor="w")
+
+    # === CARD 3: Transaksi Terakhir ===
+    card3 = tk.Frame(summary_frame, bg="#fce7f3", bd=2, relief="ridge", padx=10, pady=10)
+    card3.pack(fill="x", pady=5)
+    tk.Label(card3, text="📝 Transaksi Terakhir", font=("Segoe UI", 12, "bold"), bg="#fce7f3").pack(anchor="w")
+    if last_name:
+        tk.Label(card3, text=f"{last_name} - {last_category} - {format_rupiah(last_amount)}", bg="#fce7f3").pack(anchor="w")
+    else:
+        tk.Label(card3, text="Belum ada transaksi terbaru.", bg="#fce7f3").pack(anchor="w")
+
+# ====== Submit Form ======
+def submit_expense():
+    name = entry_name.get().strip()
+    amount = entry_amount.get().strip()
+    category = combo_category.get()
+
+    if not name or not amount or not category:
+        messagebox.showwarning("Peringatan", "Semua field harus diisi!")
+        return
+    try:
+        amount = int(amount)
+    except:
+        messagebox.showerror("Error", "Nominal harus angka!")
         return
 
-    # Baca semua pengeluaran
-    with open(path, "r", encoding="utf-8") as f:
-        expenses = [
-            Expense(name, float(amount), category)
-            for name, amount, category in (line.strip().split(",") for line in f)
-        ]
+    save_expense(name, amount, category)
+    entry_name.delete(0, tk.END)
+    entry_amount.delete(0, tk.END)
 
-    # Hitung total per kategori
-    total_by_cat = {}
-    for e in expenses:
-        total_by_cat[e.category] = total_by_cat.get(e.category, 0) + e.amount
-
-    # Hitung total bulanan
-    total_spent = sum(e.amount for e in expenses)
-    remaining = budget - total_spent
-
-    # Hitung sisa hari
-    now = datetime.datetime.now()
-    days_in_month = calendar.monthrange(now.year, now.month)[1]
-    remaining_days = days_in_month - now.day
-    daily_remaining = remaining / remaining_days if remaining_days > 0 else 0
-    daily_plan = budget / days_in_month
-
-    # Buat teks ringkasan
-    summary = "📊 RINGKASAN PENGELUARAN\n"
-    summary += "=" * 40 + "\n\n"
-
-    summary += "📁 Total per Kategori:\n"
-    for cat, total in total_by_cat.items():
-        summary += f"  • {cat}: {format_rupiah(total)}\n"
-
-    summary += f"\n💰 Total Bulanan: {format_rupiah(total_spent)}"
-    summary += f"\n💡 Sisa Budget: {format_rupiah(remaining)}"
-    summary += f"\n\n📅 Hari Ini: {now.strftime('%d %B %Y')}"
-    summary += f"\n🗓️ Sisa Hari Bulan Ini: {remaining_days} hari"
-    summary += f"\n\n📊 Budget Harian Awal: {format_rupiah(daily_plan)}"
-    summary += f"\n✅ Budget Harian Tersisa: {format_rupiah(daily_remaining)}"
-
-    # Tambahkan catatan transaksi terakhir
-    if last_name and last_amount and last_category:
-        summary += "\n\n📝 TRANSAKSI TERAKHIR\n"
-        summary += "-" * 40 + "\n"
-        summary += f"Nama: {last_name}\n"
-        summary += f"Jumlah: {format_rupiah(last_amount)}\n"
-        summary += f"Kategori: {last_category}\n"
-        summary += f"➡️ Total {last_category}: {format_rupiah(last_total)}"
-
-    # Tampilkan di kotak teks
-    summary_text.delete("1.0", tk.END)
-    summary_text.insert(tk.END, summary)
-
-# ========== UI (Antarmuka) ==========
+# ====== UI ======
 root = tk.Tk()
-root.title("📊 Pemantau Pengeluaran Harian")
+root.title("📊 Tracker Keuangan Anak Sekolah")
+root.geometry("500x600")
+root.configure(bg="white")
 
-# Input nama pengeluaran
-tk.Label(root, text="Nama Pengeluaran:").grid(row=0, column=0, sticky="w")
-name_entry = tk.Entry(root, width=30)
-name_entry.grid(row=0, column=1)
+title = tk.Label(root, text="📊 Tracker Keuangan", font=("Segoe UI", 16, "bold"), bg="white")
+title.pack(pady=10)
 
-# Input jumlah uang
-tk.Label(root, text="Jumlah (Rp):").grid(row=1, column=0, sticky="w")
-amount_entry = tk.Entry(root, width=30)
-amount_entry.grid(row=1, column=1)
+form_frame = tk.Frame(root, bg="white")
+form_frame.pack(pady=10)
 
-# Pilihan kategori
-tk.Label(root, text="Kategori:").grid(row=2, column=0, sticky="w")
-category_combo = ttk.Combobox(root, values=expense_categories, state="readonly", width=28)
-category_combo.grid(row=2, column=1)
-category_combo.current(0)
+tk.Label(form_frame, text="Nama Pengeluaran:", bg="white").grid(row=0, column=0, sticky="w", pady=5)
+entry_name = tk.Entry(form_frame, width=30)
+entry_name.grid(row=0, column=1, pady=5)
 
-# Tombol simpan
-tk.Button(
-    root, text="Simpan Pengeluaran",
-    command=lambda: save_expense(name_entry.get(), amount_entry.get(), category_combo.get())
-).grid(row=3, column=0, columnspan=2, pady=10)
+tk.Label(form_frame, text="Nominal (Rp):", bg="white").grid(row=1, column=0, sticky="w", pady=5)
+entry_amount = tk.Entry(form_frame, width=30)
+entry_amount.grid(row=1, column=1, pady=5)
 
-# Kotak teks ringkasan
-summary_text = tk.Text(root, height=20, width=60)
-summary_text.grid(row=4, column=0, columnspan=2, padx=10, pady=10)
+tk.Label(form_frame, text="Kategori:", bg="white").grid(row=2, column=0, sticky="w", pady=5)
+combo_category = ttk.Combobox(form_frame, values=expense_categories, width=28, state="readonly")
+combo_category.grid(row=2, column=1, pady=5)
 
-# Tombol lihat ringkasan
-tk.Button(root, text="Lihat Ringkasan", command=show_summary).grid(row=5, column=0, columnspan=2, pady=10)
+btn_submit = tk.Button(root, text="Tambah Pengeluaran", command=submit_expense, bg="#4ade80", fg="black", font=("Segoe UI", 10, "bold"))
+btn_submit.pack(pady=10)
 
-# Jalankan aplikasi
+summary_frame = tk.Frame(root, bg="white")
+summary_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+show_summary()
 root.mainloop()
